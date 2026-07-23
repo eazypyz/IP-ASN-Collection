@@ -23,13 +23,13 @@ concurrency:
 jobs:
   scan:
     runs-on: ubuntu-latest
-    timeout-minutes: 120
+    timeout-minutes: 90
 
     steps:
     - name: Checkout repository
       uses: actions/checkout@v4
       with:
-        fetch-depth: 2  # Butuh history untuk compare
+        fetch-depth: 2
 
     - name: Set up Python
       uses: actions/setup-python@v5
@@ -55,9 +55,11 @@ jobs:
         DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
       run: |
         python main.py
+      timeout-minutes: 85
 
     - name: Upload screenshots artifact
       uses: actions/upload-artifact@v4
+      if: always()
       with:
         name: screenshots
         path: data/screenshots/
@@ -65,7 +67,7 @@ jobs:
 
     - name: Deploy to GitHub Pages
       uses: peaceiris/actions-gh-pages@v4
-      if: github.ref == 'refs/heads/main'
+      if: github.ref == 'refs/heads/main' && success()
       with:
         github_token: ${{ secrets.GITHUB_TOKEN }}
         publish_dir: ./data
@@ -73,6 +75,7 @@ jobs:
 
     - name: Upload data artifact
       uses: actions/upload-artifact@v4
+      if: always()
       with:
         name: scan-data
         path: data/*.json
