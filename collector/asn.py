@@ -1,11 +1,12 @@
 #!/usr/bin/env python3
 """
-ASN Collector - Multi-source ASN discovery dengan fallback.
-Sumber: PeeringDB API, RIPEstat API, HackerTarget API, WHOIS RDAP.
+ASN Collector - Multi-source ASN discovery dengan retry & graceful fallback.
+Sumber: PeeringDB API, RIPEstat API, HackerTarget API.
 """
 import json
 import os
 import sys
+import time
 from pathlib import Path
 
 import httpx
@@ -14,8 +15,8 @@ import httpx
 # DAFTAR PERUSAHAAN YANG AKAN DIPANTAU
 # ═══════════════════════════════════════════════════════════════
 COMPANIES = [
-    {"name": "amazon", "domain": "amazon.com"},
-    {"name": "paypal", "domain": "paypal"},
+    {"name": "Example Corp", "domain": "example.com"},
+    {"name": "Tech Solutions", "domain": "techsolutions.io"},
 ]
 
 DATA_DIR = Path(__file__).parent.parent / "data"
@@ -24,25 +25,46 @@ DATA_DIR = Path(__file__).parent.parent / "data"
 # API ENDPOINTS
 # ═══════════════════════════════════════════════════════════════
 PEERINGDB_SEARCH_URL = "https://www.peeringdb.com/api/net"
-PEERINGDB_ORG_URL = "https://www.peeringdb.com/api/org"
 RIPESTAT_SEARCH_URL = "https://stat.ripe.net/data/searchcomplete/data.json"
-RIPESTAT_AS_OVERVIEW = "https://stat.ripe.net/data/as-overview/data.json"
 HACKERTARGET_ASN_URL = "https://api.hackertarget.com/aslookup/"
+
+
+def fetch_with_retry(client: httpx.Client, url: str, params: dict | None = None,
+                     max_retries: int = 3, backoff: float = 2.0) -> httpx.Response | None:
+    """Fetch dengan exponential backoff retry."""
+    for attempt in range(max_retries):
+        try:
+            if params:
+                resp = client.get(url, params=params, timeout=30.0)
+            else:
+                resp = client.get(url, timeout=30.0)
+            if resp.status_code < 500:
+                return resp
+            print(f"      → Retry {attempt + 1}/{max_retries}: HTTP {resp.status_code}")
+        except (httpx.TimeoutException, httpx.ConnectError) as e:
+            print(f"      → Retry {attempt + 1}/{max_retries}: {type(e).__name__}")
+
+        if attempt < max_retries - 1:
+            sleep_time = backoff * (2 ** attempt)
+            print(f"      → Waiting {sleep_time}s before retry...")
+            time.sleep(sleep_time)
+    return None
 
 
 def fetch_peeringdb_by_name(name: str) -> list[dict]:
     """Cari ASN di PeeringDB berdasarkan nama perusahaan."""
     results = []
     try:
-        with httpx.Client(timeout=30.0) as client:
-            # Search by name partial match
-            resp = client.get(
-                PEERINGDB_SEARCH_URL,
-                params={"name__contains": name, "limit": 50}
+        with httpx.Client() as client:
+            resp = fetch_with_retry(
+                client, PEERINGDB_SEARCH_URL,
+                params={"name__contains": name, "limit": 50},
+                max_retries=2, backoff=1.0
             )
-            resp.raise_for_status()
-            data = resp.json()
+            if resp is None or resp.status_code != 200:
+                return results
 
+            data = resp.json()
             for net in data.get("data", []):
                 asn = net.get("asn")
                 if asn:
@@ -67,15 +89,16 @@ def fetch_peeringdb_by_domain(domain: str) -> list[dict]:
     """Cari ASN di PeeringDB berdasarkan domain."""
     results = []
     try:
-        with httpx.Client(timeout=30.0) as client:
-            # Try website match
-            resp = client.get(
-                PEERINGDB_SEARCH_URL,
-                params={"website__contains": domain.replace("www.", ""), "limit": 50}
+        with httpx.Client() as client:
+            resp = fetch_with_retry(
+                client, PEERINGDB_SEARCH_URL,
+                params={"website__contains": domain.replace("www.", ""), "limit": 50},
+                max_retries=2, backoff=1.0
             )
-            resp.raise_for_status()
-            data = resp.json()
+            if resp is None or resp.status_code != 200:
+                return results
 
+            data = resp.json()
             for net in data.get("data", []):
                 asn = net.get("asn")
                 if asn:
@@ -100,11 +123,16 @@ def fetch_ripestat_search(query: str) -> list[dict]:
     """Cari ASN di RIPEstat searchcomplete."""
     results = []
     try:
-        with httpx.Client(timeout=30.0) as client:
-            resp = client.get(RIPESTAT_SEARCH_URL, params={"query_string": query})
-            resp.raise_for_status()
-            data = resp.json()
+        with httpx.Client() as client:
+            resp = fetch_with_retry(
+                client, RIPESTAT_SEARCH_URL,
+                params={"query_string": query},
+                max_retries=2, backoff=1.0
+            )
+            if resp is None or resp.status_code != 200:
+                return results
 
+            data = resp.json()
             for item in data.get("data", {}).get("results", []):
                 if item.get("type") == "autnum":
                     asn = item.get("key", "").replace("AS", "")
@@ -130,19 +158,22 @@ def fetch_hackertarget_by_ip(domain: str) -> list[dict]:
     """Gunakan HackerTarget untuk resolve domain → ASN."""
     results = []
     try:
-        # Resolve domain ke IP dulu
         import socket
         try:
             ip = socket.gethostbyname(domain)
         except socket.gaierror:
             return results
 
-        with httpx.Client(timeout=30.0) as client:
-            resp = client.get(HACKERTARGET_ASN_URL, params={"q": ip})
-            resp.raise_for_status()
-            text = resp.text.strip()
+        with httpx.Client() as client:
+            resp = fetch_with_retry(
+                client, HACKERTARGET_ASN_URL,
+                params={"q": ip},
+                max_retries=2, backoff=1.0
+            )
+            if resp is None or resp.status_code != 200:
+                return results
 
-            # Format: "ip","asn","prefix","org"
+            text = resp.text.strip()
             if text and not text.startswith("error"):
                 parts = [p.strip('"') for p in text.split(",")]
                 if len(parts) >= 2:
@@ -163,19 +194,6 @@ def fetch_hackertarget_by_ip(domain: str) -> list[dict]:
     except Exception as e:
         print(f"[WARN] HackerTarget gagal untuk '{domain}': {e}", file=sys.stderr)
     return results
-
-
-def fetch_ripestat_as_overview(asn: str) -> dict:
-    """Ambil detail ASN dari RIPEstat AS Overview."""
-    try:
-        with httpx.Client(timeout=30.0) as client:
-            resp = client.get(RIPESTAT_AS_OVERVIEW, params={"resource": f"AS{asn}"})
-            resp.raise_for_status()
-            data = resp.json()
-            return data.get("data", {})
-    except Exception as e:
-        print(f"[WARN] RIPEstat AS overview gagal untuk AS{asn}: {e}", file=sys.stderr)
-        return {}
 
 
 def collect_asns_for_company(company: dict) -> list[dict]:
@@ -211,12 +229,6 @@ def collect_asns_for_company(company: dict) -> list[dict]:
         asn = r.get("asn")
         if asn and asn not in seen:
             seen.add(asn)
-            # Enrich dengan RIPEstat overview
-            overview = fetch_ripestat_as_overview(asn)
-            if overview.get("holder"):
-                r["name"] = r["name"] or overview["holder"]
-            if overview.get("announced") is not None:
-                r["announced"] = overview["announced"]
             unique.append(r)
 
     print(f"      ✓ Found {len(unique)} unique ASN(s)")
