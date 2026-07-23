@@ -11,8 +11,8 @@ import httpx
 
 # Daftar perusahaan yang akan dipantau
 COMPANIES = [
-    {"name": "Aptum Technologies (UK) Limited", "domain": "conscious.co.uk"},
-    {"name": "KDDI Web Communications Inc", "domain": "marumiya.jp"},
+    {"name": "Amazon", "domain": "amazon.com"},
+    {"name": "Verizon", "domain": "verizon.net"},
 ]
 
 # API endpoint untuk ASN lookup
