@@ -15,8 +15,8 @@ import httpx
 # DAFTAR PERUSAHAAN YANG AKAN DIPANTAU
 # ═══════════════════════════════════════════════════════════════
 COMPANIES = [
-    {"name": "Example Corp", "domain": "example.com"},
-    {"name": "Tech Solutions", "domain": "techsolutions.io"},
+    {"name": "amazon", "domain": "amazon.com"},
+    {"name": "paypal", "domain": "paypal.com"},
 ]
 
 DATA_DIR = Path(__file__).parent.parent / "data"
