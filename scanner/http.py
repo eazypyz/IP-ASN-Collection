@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """
 HTTP Scanner - Memindai IP untuk mendeteksi layanan HTTP/HTTPS.
+Optimized untuk GitHub Actions dengan progress tracking.
 """
 import asyncio
 import json
@@ -11,52 +12,50 @@ from pathlib import Path
 import httpx
 
 DATA_DIR = Path(__file__).parent.parent / "data"
-CONCURRENT_LIMIT = 50
-TIMEOUT = 10.0
+CONCURRENT_LIMIT = 30       # Dikurangi dari 50 untuk stabilitas
+TIMEOUT = 8.0               # Dikurangi dari 10s
 PORTS = [80, 443, 8080, 8443]
 
 
-async def scan_single_ip(ip: str, port: int, client: httpx.AsyncClient) -> dict | None:
-    """Memindai satu IP:port."""
-    protocol = "https" if port in (443, 8443) else "http"
-    url = f"{protocol}://{ip}:{port}"
+async def scan_single_ip(ip: str, port: int, client: httpx.AsyncClient, semaphore: asyncio.Semaphore) -> dict | None:
+    """Memindai satu IP:port dengan semaphore."""
+    async with semaphore:
+        protocol = "https" if port in (443, 8443) else "http"
+        url = f"{protocol}://{ip}:{port}"
 
-    try:
-        resp = await client.get(url, follow_redirects=True, timeout=TIMEOUT)
+        try:
+            resp = await client.get(url, follow_redirects=True, timeout=TIMEOUT)
 
-        result = {
-            "ip": ip,
-            "port": port,
-            "protocol": protocol,
-            "url": str(resp.url),
-            "status_code": resp.status_code,
-            "headers": dict(resp.headers),
-            "server": resp.headers.get("server", ""),
-            "title": "",
-            "content_length": len(resp.content),
-            "timestamp": asyncio.get_event_loop().time(),
-        }
+            result = {
+                "ip": ip,
+                "port": port,
+                "protocol": protocol,
+                "url": str(resp.url),
+                "status_code": resp.status_code,
+                "headers": dict(resp.headers),
+                "server": resp.headers.get("server", ""),
+                "title": "",
+                "content_length": len(resp.content),
+                "timestamp": asyncio.get_event_loop().time(),
+            }
 
-        # Extract title
-        content = resp.text
-        if "<title>" in content.lower():
-            try:
-                start = content.lower().index("<title>") + 7
-                end = content.lower().index("</title>")
-                result["title"] = content[start:end].strip()[:200]
-            except ValueError:
-                pass
+            # Extract title
+            content = resp.text
+            if "<title>" in content.lower():
+                try:
+                    start = content.lower().index("<title>") + 7
+                    end = content.lower().index("</title>")
+                    result["title"] = content[start:end].strip()[:200]
+                except ValueError:
+                    pass
 
-        return result
-    except Exception:
-        return None
+            return result
+        except Exception:
+            return None
 
 
-async def scan_ips(ips: list[dict], limit: int = 500) -> list[dict]:
+async def scan_ips(ips: list[dict]) -> list[dict]:
     """Memindai daftar IP untuk layanan HTTP/HTTPS."""
-    # Batasi jumlah IP yang dipindai
-    ips = ips[:limit]
-
     results = []
     semaphore = asyncio.Semaphore(CONCURRENT_LIMIT)
 
@@ -67,25 +66,35 @@ async def scan_ips(ips: list[dict], limit: int = 500) -> list[dict]:
 
     transport = httpx.AsyncHTTPTransport(verify=ssl_context)
 
+    total_requests = len(ips) * len(PORTS)
+    print(f"    [HTTP] Total requests: {len(ips)} IPs × {len(PORTS)} ports = {total_requests}")
+    print(f"    [HTTP] Concurrency: {CONCURRENT_LIMIT}, Timeout: {TIMEOUT}s")
+
+    completed = 0
+    alive_count = 0
+
     async with httpx.AsyncClient(transport=transport, follow_redirects=True) as client:
         tasks = []
         for ip_info in ips:
             ip = ip_info["ip"]
             for port in PORTS:
-                async def task(ip=ip, port=port):
-                    async with semaphore:
-                        return await scan_single_ip(ip, port, client)
-                tasks.append(task())
+                task = asyncio.create_task(scan_single_ip(ip, port, client, semaphore))
+                tasks.append(task)
 
-        print(f"[HTTP] Scanning {len(ips)} IPs x {len(PORTS)} ports = {len(tasks)} requests ...")
-
-        for i, coro in enumerate(asyncio.as_completed(tasks)):
+        for coro in asyncio.as_completed(tasks):
             result = await coro
+            completed += 1
+
             if result and result.get("status_code"):
                 results.append(result)
-            if (i + 1) % 100 == 0:
-                print(f"[HTTP] Progress: {i + 1}/{len(tasks)}")
+                alive_count += 1
 
+            # Progress report setiap 50 requests
+            if completed % 50 == 0 or completed == total_requests:
+                pct = (completed / total_requests) * 100
+                print(f"    [HTTP] Progress: {completed}/{total_requests} ({pct:.1f}%) | Alive: {alive_count}")
+
+    print(f"    [HTTP] Done! Alive services: {alive_count}/{total_requests}")
     return results
 
 
