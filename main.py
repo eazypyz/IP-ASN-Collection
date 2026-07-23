@@ -35,8 +35,8 @@ DATA_DIR = Path(__file__).parent / "data"
 # ═══════════════════════════════════════════════════════════════
 # KONFIGURASI LIMITS (sesuaikan untuk GitHub Actions)
 # ═══════════════════════════════════════════════════════════════
-MAX_IPS_TO_SCAN = 200        # Batasi IP yang discan (default: 200)
-MAX_SCREENSHOTS = 20         # Batasi screenshot (default: 20)
+MAX_IPS_TO_SCAN = 50        # Batasi IP yang discan (default: 200)
+MAX_SCREENSHOTS = 5         # Batasi screenshot (default: 20)
 MAX_PREFIX_IPS = 128         # Max IP per prefix (default: 128)
 HTTP_TIMEOUT = 8.0           # Timeout per HTTP request (default: 8s)
 SCREENSHOT_TIMEOUT = 12000   # Screenshot timeout ms (default: 12s)
