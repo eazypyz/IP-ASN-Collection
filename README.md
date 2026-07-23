@@ -2,16 +2,18 @@
 
 Pipeline otomatis untuk mengumpulkan dan memantau IP assets perusahaan menggunakan GitHub Actions.
 
+> **UPDATE 2026**: BGPView API sudah tidak tersedia. Project sekarang menggunakan **multi-source approach** dengan PeeringDB API, RIPEstat API, HackerTarget, dan bgp.he.net sebagai fallback. Lihat `API_ALTERNATIVES.md` untuk detail.
+
 ## Arsitektur
 
 ```
 Company List
      │
      ▼
-ASN Collector (BGPView API)
+ASN Collector (PeeringDB + RIPEstat + HackerTarget)
      │
      ▼
-Prefix Collector
+Prefix Collector (RIPEstat + bgp.he.net fallback)
      │
      ▼
 IP Enumerator
@@ -38,8 +40,8 @@ GitHub Pages   Discord Notifier
 ```
 ip-assets/
 ├── collector/
-│   ├── asn.py          # ASN collector via BGPView
-│   ├── prefix.py       # Prefix collector
+│   ├── asn.py          # Multi-source ASN collector
+│   ├── prefix.py       # Multi-source prefix collector
 │   └── ip.py           # IP enumerator
 ├── scanner/
 │   ├── http.py         # HTTP/HTTPS scanner
@@ -54,8 +56,28 @@ ip-assets/
 ├── .github/workflows/
 │   └── scan.yml        # GitHub Actions workflow
 ├── main.py             # Pipeline orchestrator
-└── requirements.txt
+├── index.html          # Dashboard GitHub Pages
+├── API_ALTERNATIVES.md # Dokumentasi API sources
+├── requirements.txt
+└── README.md
 ```
+
+## Multi-Source ASN Discovery
+
+Pipeline mencoba sumber berikut secara berurutan:
+
+1. **PeeringDB API** — `api/net?name__contains={name}`
+2. **RIPEstat Search** — `data/searchcomplete/data.json`
+3. **HackerTarget** — Domain → IP → ASN mapping
+4. **RIPEstat AS Overview** — Enrichment & validation
+
+Jika satu source gagal, otomatis fallback ke source berikutnya.
+
+## Multi-Source Prefix Discovery
+
+1. **RIPEstat Announced Prefixes** — Live BGP data (primary)
+2. **bgp.he.net** — HTML scrape (fallback)
+3. **RIPEstat Routing Status** — Validasi visibility
 
 ## Setup
 
@@ -131,14 +153,23 @@ Changed Status : 7
 
 Workflow berjalan otomatis setiap **6 jam** (00:00, 06:00, 12:00, 18:00 UTC).
 
+## API Sources & Rate Limits
+
+| Source | Rate Limit | Auth |
+|--------|-----------|------|
+| PeeringDB API | 120 req/min | No |
+| RIPEstat API | ~100 req/min | No |
+| HackerTarget | 50/day (free) | Optional API Key |
+| bgp.he.net | Be polite | No |
+
 ## Teknologi
 
 - **Python 3.11**
-- **httpx** - Async HTTP client
-- **Playwright** - Browser automation untuk screenshot
-- **GitHub Actions** - CI/CD & scheduling
-- **GitHub Pages** - Static dashboard
-- **Discord Webhook** - Push notifications
+- **httpx** — Async HTTP client
+- **Playwright** — Browser automation untuk screenshot
+- **GitHub Actions** — CI/CD & scheduling
+- **GitHub Pages** — Static dashboard
+- **Discord Webhook** — Push notifications
 
 ## License
 
