@@ -1,0 +1,290 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>IP Assets Dashboard</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: #0d1117;
+            color: #c9d1d9;
+            line-height: 1.6;
+        }
+        .container { max-width: 1400px; margin: 0 auto; padding: 20px; }
+        header {
+            background: #161b22;
+            border-bottom: 1px solid #30363d;
+            padding: 30px 20px;
+            margin-bottom: 30px;
+        }
+        h1 { color: #58a6ff; font-size: 2rem; }
+        .subtitle { color: #8b949e; margin-top: 5px; }
+        .stats-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 15px;
+            margin-bottom: 30px;
+        }
+        .stat-card {
+            background: #161b22;
+            border: 1px solid #30363d;
+            border-radius: 12px;
+            padding: 20px;
+            text-align: center;
+        }
+        .stat-value {
+            font-size: 2.5rem;
+            font-weight: bold;
+            color: #58a6ff;
+        }
+        .stat-label { color: #8b949e; font-size: 0.9rem; margin-top: 5px; }
+        .section {
+            background: #161b22;
+            border: 1px solid #30363d;
+            border-radius: 12px;
+            padding: 20px;
+            margin-bottom: 20px;
+        }
+        .section h2 {
+            color: #f0883e;
+            margin-bottom: 15px;
+            font-size: 1.2rem;
+        }
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 0.9rem;
+        }
+        th, td {
+            padding: 10px 12px;
+            text-align: left;
+            border-bottom: 1px solid #30363d;
+        }
+        th {
+            color: #8b949e;
+            font-weight: 600;
+            text-transform: uppercase;
+            font-size: 0.75rem;
+            letter-spacing: 0.5px;
+        }
+        tr:hover { background: #1f242c; }
+        .badge {
+            display: inline-block;
+            padding: 2px 8px;
+            border-radius: 12px;
+            font-size: 0.75rem;
+            font-weight: 600;
+        }
+        .badge-success { background: #238636; color: #fff; }
+        .badge-warning { background: #9e6a03; color: #fff; }
+        .badge-info { background: #1f6feb; color: #fff; }
+        .badge-danger { background: #da3633; color: #fff; }
+        .screenshot-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+            gap: 15px;
+        }
+        .screenshot-card {
+            background: #0d1117;
+            border: 1px solid #30363d;
+            border-radius: 8px;
+            overflow: hidden;
+        }
+        .screenshot-card img {
+            width: 100%;
+            height: 180px;
+            object-fit: cover;
+            background: #161b22;
+        }
+        .screenshot-info {
+            padding: 12px;
+            font-size: 0.85rem;
+        }
+        .screenshot-info .url {
+            color: #58a6ff;
+            word-break: break-all;
+        }
+        .timestamp {
+            color: #8b949e;
+            font-size: 0.8rem;
+            margin-top: 20px;
+            text-align: center;
+        }
+        .loading {
+            text-align: center;
+            padding: 40px;
+            color: #8b949e;
+        }
+    </style>
+</head>
+<body>
+    <header>
+        <div class="container">
+            <h1>🌐 IP Assets Dashboard</h1>
+            <p class="subtitle">Real-time monitoring of company IP assets</p>
+        </div>
+    </header>
+
+    <div class="container">
+        <div class="stats-grid" id="stats">
+            <div class="stat-card">
+                <div class="stat-value" id="stat-asns">-</div>
+                <div class="stat-label">ASNs</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-value" id="stat-prefixes">-</div>
+                <div class="stat-label">Prefixes</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-value" id="stat-ips">-</div>
+                <div class="stat-label">IPs Scanned</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-value" id="stat-alive">-</div>
+                <div class="stat-label">Alive Services</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-value" id="stat-screenshots">-</div>
+                <div class="stat-label">Screenshots</div>
+            </div>
+        </div>
+
+        <div class="section">
+            <h2>📡 ASN List</h2>
+            <div id="asn-table" class="loading">Loading...</div>
+        </div>
+
+        <div class="section">
+            <h2>🌍 Prefix List</h2>
+            <div id="prefix-table" class="loading">Loading...</div>
+        </div>
+
+        <div class="section">
+            <h2>🎯 Alive HTTP Services</h2>
+            <div id="http-table" class="loading">Loading...</div>
+        </div>
+
+        <div class="section">
+            <h2>📸 Screenshots</h2>
+            <div id="screenshot-grid" class="loading">Loading...</div>
+        </div>
+
+        <p class="timestamp" id="timestamp"></p>
+    </div>
+
+    <script>
+        async function loadJSON(filename) {
+            try {
+                const resp = await fetch(`data/${filename}`);
+                if (!resp.ok) return [];
+                return await resp.json();
+            } catch (e) {
+                console.error(`Failed to load ${filename}:`, e);
+                return [];
+            }
+        }
+
+        function renderASNs(asns) {
+            if (!asns.length) return '<p class="loading">No ASN data available</p>';
+            let html = `<table>
+                <thead><tr><th>ASN</th><th>Name</th><th>Description</th><th>Country</th><th>Company</th></tr></thead>
+                <tbody>`;
+            asns.forEach(a => {
+                html += `<tr>
+                    <td><span class="badge badge-info">AS${a.asn}</span></td>
+                    <td>${a.name || '-'}</td>
+                    <td>${a.description || '-'}</td>
+                    <td>${a.country_code || '-'}</td>
+                    <td>${a.company || '-'}</td>
+                </tr>`;
+            });
+            html += '</tbody></table>';
+            return html;
+        }
+
+        function renderPrefixes(prefixes) {
+            if (!prefixes.length) return '<p class="loading">No prefix data available</p>';
+            let html = `<table>
+                <thead><tr><th>Prefix</th><th>Version</th><th>ASN</th><th>Country</th></tr></thead>
+                <tbody>`;
+            prefixes.forEach(p => {
+                const badge = p.ip_version === 4 ? 'badge-success' : 'badge-warning';
+                html += `<tr>
+                    <td><code>${p.prefix}</code></td>
+                    <td><span class="badge ${badge}">IPv${p.ip_version}</span></td>
+                    <td>AS${p.parent_asn}</td>
+                    <td>${p.country_code || '-'}</td>
+                </tr>`;
+            });
+            html += '</tbody></table>';
+            return html;
+        }
+
+        function renderHTTP(results) {
+            if (!results.length) return '<p class="loading">No HTTP data available</p>';
+            let html = `<table>
+                <thead><tr><th>IP</th><th>Port</th><th>Status</th><th>Server</th><th>Title</th><th>Protocol</th></tr></thead>
+                <tbody>`;
+            results.forEach(r => {
+                const statusBadge = r.status_code >= 200 && r.status_code < 300 ? 'badge-success' :
+                                   r.status_code >= 300 && r.status_code < 400 ? 'badge-warning' :
+                                   r.status_code >= 400 ? 'badge-danger' : 'badge-info';
+                html += `<tr>
+                    <td><code>${r.ip}</code></td>
+                    <td>${r.port}</td>
+                    <td><span class="badge ${statusBadge}">${r.status_code}</span></td>
+                    <td>${r.server || '-'}</td>
+                    <td>${r.title || '-'}</td>
+                    <td><span class="badge badge-info">${r.protocol.toUpperCase()}</span></td>
+                </tr>`;
+            });
+            html += '</tbody></table>';
+            return html;
+        }
+
+        function renderScreenshots(results) {
+            if (!results.length) return '<p class="loading">No screenshots available</p>';
+            let html = '<div class="screenshot-grid">';
+            results.forEach(r => {
+                html += `<div class="screenshot-card">
+                    <img src="data/${r.screenshot}" alt="Screenshot" onerror="this.style.display='none'">
+                    <div class="screenshot-info">
+                        <div class="url">${r.url}</div>
+                        <div>IP: ${r.ip} | Status: ${r.status_code}</div>
+                        <div>Server: ${r.server || 'Unknown'}</div>
+                    </div>
+                </div>`;
+            });
+            html += '</div>';
+            return html;
+        }
+
+        async function init() {
+            const [asns, prefixes, ips, http, screenshots] = await Promise.all([
+                loadJSON('asns.json'),
+                loadJSON('prefixes.json'),
+                loadJSON('ips.json'),
+                loadJSON('http_results.json'),
+                loadJSON('screenshot_results.json'),
+            ]);
+
+            document.getElementById('stat-asns').textContent = asns.length;
+            document.getElementById('stat-prefixes').textContent = prefixes.length;
+            document.getElementById('stat-ips').textContent = ips.length;
+            document.getElementById('stat-alive').textContent = http.length;
+            document.getElementById('stat-screenshots').textContent = screenshots.length;
+
+            document.getElementById('asn-table').innerHTML = renderASNs(asns);
+            document.getElementById('prefix-table').innerHTML = renderPrefixes(prefixes);
+            document.getElementById('http-table').innerHTML = renderHTTP(http);
+            document.getElementById('screenshot-grid').innerHTML = renderScreenshots(screenshots);
+
+            document.getElementById('timestamp').textContent = `Last updated: ${new Date().toLocaleString()}`;
+        }
+
+        init();
+    </script>
+</body>
+</html>
