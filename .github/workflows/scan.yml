@@ -1,9 +1,6 @@
 name: IP Assets Scanner
 
 on:
-  schedule:
-    # Jalankan setiap 6 jam
-    - cron: '0 */6 * * *'
   workflow_dispatch:
     inputs:
       reason:
